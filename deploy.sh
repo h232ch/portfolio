@@ -62,6 +62,7 @@ if [[ -n $(git status --porcelain) ]]; then
     else
         print_error "Please commit or stash your changes before deploying!"
         exit 1
+    fi
 fi
 
 # Build the Hugo site locally to verify it works
