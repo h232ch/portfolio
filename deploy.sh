@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Deploy script for Hugo site using GitHub Actions
-# This script builds the site and pushes to main branch to trigger GitHub Actions deployment
+# Deploy script for Hugo site to GitHub Pages
+# This script automates the deployment process
 
 set -e  # Exit on any error
 
-echo "🚀 Starting Hugo site deployment via GitHub Actions..."
+echo "🚀 Starting Hugo site deployment..."
 
 # Colors for output
 RED='\033[0;31m'
@@ -30,12 +30,6 @@ print_warning() {
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
-
-# Safety check: Ensure we're in the right directory
-if [[ ! -f "hugo.toml" ]]; then
-    print_error "hugo.toml not found! Please run this script from the Hugo project root directory."
-    exit 1
-fi
 
 # Check if we're on main branch
 if [[ $(git branch --show-current) != "main" ]]; then
@@ -65,39 +59,67 @@ if [[ -n $(git status --porcelain) ]]; then
     fi
 fi
 
-# Build the Hugo site locally to verify it works
-print_status "Building Hugo site locally to verify build..."
+# Build the Hugo site
+print_status "Building Hugo site..."
 if ! hugo --minify; then
-    print_error "Hugo build failed! Please fix build issues before deploying."
+    print_error "Hugo build failed!"
     exit 1
 fi
+print_success "Site built successfully!"
 
-# Safety check: Ensure public directory was created and contains files
-if [[ ! -d "public" ]] || [[ -z "$(ls -A public 2>/dev/null)" ]]; then
-    print_error "Hugo build failed to create public directory or it's empty!"
-    exit 1
+# Check if gh-pages branch exists
+if ! git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+    print_error "gh-pages branch not found on remote!"
+    print_status "Creating gh-pages branch..."
+    git checkout -b gh-pages
+    git push origin gh-pages
+    git checkout main
+    print_success "gh-pages branch created!"
 fi
 
-print_success "Local build successful! Site will be built and deployed by GitHub Actions."
+# Switch to gh-pages branch
+print_status "Switching to gh-pages branch..."
+git checkout gh-pages
 
-# Clean up local build
-print_status "Cleaning up local build files..."
+# Clean the gh-pages branch (keep only .git and .nojekyll)
+print_status "Cleaning gh-pages branch..."
+find . -maxdepth 1 ! -name '.' ! -name '..' ! -name '.git' ! -name '.nojekyll' -exec rm -rf {} +
+
+# Copy new site files
+print_status "Copying new site files..."
+cp -r public/* .
+
+# Remove the public directory
 rm -rf public
 
-# Push to main branch to trigger GitHub Actions deployment
-print_status "Pushing to main branch to trigger GitHub Actions deployment..."
-git push origin main
+# Add all changes
+print_status "Adding changes to git..."
+git add .
 
-print_success "🎉 Deployment triggered!"
-print_success "GitHub Actions will now build and deploy your site."
-print_status "Check deployment status at: https://github.com/h232ch/portfolio/actions"
-print_status "Your site will be available at: https://h232ch.github.io/portfolio/"
-print_status "Note: Deployment usually takes 2-5 minutes."
+# Commit changes
+print_status "Committing deployment..."
+git commit -m "Deploy site $(date '+%Y-%m-%d %H:%M:%S')"
 
-# Optional: Open the GitHub Actions page
-read -p "Do you want to open the GitHub Actions page? (y/n): " -n 1 -r
+# Push to gh-pages branch
+print_status "Pushing to gh-pages branch..."
+git push origin gh-pages
+
+# Switch back to main branch
+print_status "Switching back to main branch..."
+git checkout main
+
+# Clean up
+print_status "Cleaning up..."
+rm -rf public
+
+print_success "🎉 Deployment complete!"
+print_success "Your site should be available at: https://h232ch.github.io/portfolio/"
+print_status "Note: It may take a few minutes for changes to appear."
+
+# Optional: Open the site in browser
+read -p "Do you want to open the site in your browser? (y/n): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    print_status "Opening GitHub Actions page..."
-    open "https://github.com/h232ch/portfolio/actions"
+    print_status "Opening site in browser..."
+    open "https://h232ch.github.io/portfolio/"
 fi
