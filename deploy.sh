@@ -90,7 +90,7 @@ git push origin main
 print_success "🎉 Deployment triggered!"
 print_success "GitHub Actions will now build and deploy your site."
 print_status "Check deployment status at: https://github.com/h232ch/portfolio/actions"
-print_status "Your site will be available at: https://h232ch.github.io/"
+print_status "Your site will be available at: https://h232ch.github.io/portfolio/"
 print_status "Note: Deployment usually takes 2-5 minutes."
 
 # Optional: Open the GitHub Actions page
