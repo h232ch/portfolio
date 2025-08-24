@@ -31,6 +31,12 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Safety check: Ensure we're in the right directory
+if [[ ! -f "hugo.toml" ]]; then
+    print_error "hugo.toml not found! Please run this script from the Hugo project root directory."
+    exit 1
+fi
+
 # Check if we're on main branch
 if [[ $(git branch --show-current) != "main" ]]; then
     print_error "You must be on the main branch to deploy!"
@@ -65,6 +71,13 @@ if ! hugo --minify; then
     print_error "Hugo build failed!"
     exit 1
 fi
+
+# Safety check: Ensure public directory was created and contains files
+if [[ ! -d "public" ]] || [[ -z "$(ls -A public 2>/dev/null)" ]]; then
+    print_error "Hugo build failed to create public directory or it's empty!"
+    exit 1
+fi
+
 print_success "Site built successfully!"
 
 # Check if gh-pages branch exists
@@ -77,20 +90,38 @@ if ! git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
     print_success "gh-pages branch created!"
 fi
 
+# Create a temporary directory for the build
+TEMP_BUILD_DIR=$(mktemp -d)
+print_status "Created temporary build directory: $TEMP_BUILD_DIR"
+
+# Copy built site to temporary directory
+print_status "Copying built site to temporary directory..."
+cp -r public/* "$TEMP_BUILD_DIR/"
+
 # Switch to gh-pages branch
 print_status "Switching to gh-pages branch..."
 git checkout gh-pages
 
-# Clean the gh-pages branch (keep only .git and .nojekyll)
+# Safety check: Ensure we're on gh-pages branch
+if [[ $(git branch --show-current) != "gh-pages" ]]; then
+    print_error "Failed to switch to gh-pages branch!"
+    rm -rf "$TEMP_BUILD_DIR"
+    exit 1
+fi
+
+# Clean the gh-pages branch safely (keep only .git and .nojekyll)
 print_status "Cleaning gh-pages branch..."
-find . -maxdepth 1 ! -name '.' ! -name '..' ! -name '.git' ! -name '.nojekyll' -exec rm -rf {} +
+# Only remove files, not directories, to be safer
+find . -maxdepth 1 -type f ! -name '.nojekyll' -delete
+# Remove directories safely
+find . -maxdepth 1 -type d ! -name '.' ! -name '..' ! -name '.git' ! -name '.nojekyll' -exec rm -rf {} + 2>/dev/null || true
 
-# Copy new site files
+# Copy new site files from temporary directory
 print_status "Copying new site files..."
-cp -r public/* .
+cp -r "$TEMP_BUILD_DIR"/* .
 
-# Remove the public directory
-rm -rf public
+# Clean up temporary directory
+rm -rf "$TEMP_BUILD_DIR"
 
 # Add all changes
 print_status "Adding changes to git..."
@@ -108,7 +139,13 @@ git push origin gh-pages
 print_status "Switching back to main branch..."
 git checkout main
 
-# Clean up
+# Safety check: Ensure we're back on main branch
+if [[ $(git branch --show-current) != "main" ]]; then
+    print_error "Failed to switch back to main branch!"
+    exit 1
+fi
+
+# Clean up public directory
 print_status "Cleaning up..."
 rm -rf public
 
