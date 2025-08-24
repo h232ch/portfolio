@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Deploy script for Hugo site to GitHub Pages
-# This script automates the deployment process
+# Deploy script for Hugo site using GitHub Actions
+# This script builds the site and pushes to main branch to trigger GitHub Actions deployment
 
 set -e  # Exit on any error
 
-echo "🚀 Starting Hugo site deployment..."
+echo "🚀 Starting Hugo site deployment via GitHub Actions..."
 
 # Colors for output
 RED='\033[0;31m'
@@ -65,10 +65,10 @@ if [[ -n $(git status --porcelain) ]]; then
     fi
 fi
 
-# Build the Hugo site
-print_status "Building Hugo site..."
+# Build the Hugo site locally to verify it works
+print_status "Building Hugo site locally to verify build..."
 if ! hugo --minify; then
-    print_error "Hugo build failed!"
+    print_error "Hugo build failed! Please fix build issues before deploying."
     exit 1
 fi
 
@@ -78,85 +78,26 @@ if [[ ! -d "public" ]] || [[ -z "$(ls -A public 2>/dev/null)" ]]; then
     exit 1
 fi
 
-print_success "Site built successfully!"
+print_success "Local build successful! Site will be built and deployed by GitHub Actions."
 
-# Check if gh-pages branch exists
-if ! git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
-    print_error "gh-pages branch not found on remote!"
-    print_status "Creating gh-pages branch..."
-    git checkout -b gh-pages
-    git push origin gh-pages
-    git checkout main
-    print_success "gh-pages branch created!"
-fi
-
-# Create a temporary directory for the build
-TEMP_BUILD_DIR=$(mktemp -d)
-print_status "Created temporary build directory: $TEMP_BUILD_DIR"
-
-# Copy built site to temporary directory
-print_status "Copying built site to temporary directory..."
-cp -r public/* "$TEMP_BUILD_DIR/"
-
-# Switch to gh-pages branch
-print_status "Switching to gh-pages branch..."
-git checkout gh-pages
-
-# Safety check: Ensure we're on gh-pages branch
-if [[ $(git branch --show-current) != "gh-pages" ]]; then
-    print_error "Failed to switch to gh-pages branch!"
-    rm -rf "$TEMP_BUILD_DIR"
-    exit 1
-fi
-
-# Clean the gh-pages branch safely (keep only .git and .nojekyll)
-print_status "Cleaning gh-pages branch..."
-# Only remove files, not directories, to be safer
-find . -maxdepth 1 -type f ! -name '.nojekyll' -delete
-# Remove directories safely
-find . -maxdepth 1 -type d ! -name '.' ! -name '..' ! -name '.git' ! -name '.nojekyll' -exec rm -rf {} + 2>/dev/null || true
-
-# Copy new site files from temporary directory
-print_status "Copying new site files..."
-cp -r "$TEMP_BUILD_DIR"/* .
-
-# Clean up temporary directory
-rm -rf "$TEMP_BUILD_DIR"
-
-# Add all changes
-print_status "Adding changes to git..."
-git add .
-
-# Commit changes
-print_status "Committing deployment..."
-git commit -m "Deploy site $(date '+%Y-%m-%d %H:%M:%S')"
-
-# Push to gh-pages branch
-print_status "Pushing to gh-pages branch..."
-git push origin gh-pages
-
-# Switch back to main branch
-print_status "Switching back to main branch..."
-git checkout main
-
-# Safety check: Ensure we're back on main branch
-if [[ $(git branch --show-current) != "main" ]]; then
-    print_error "Failed to switch back to main branch!"
-    exit 1
-fi
-
-# Clean up public directory
-print_status "Cleaning up..."
+# Clean up local build
+print_status "Cleaning up local build files..."
 rm -rf public
 
-print_success "🎉 Deployment complete!"
-print_success "Your site should be available at: https://h232ch.github.io/portfolio/"
-print_status "Note: It may take a few minutes for changes to appear."
+# Push to main branch to trigger GitHub Actions deployment
+print_status "Pushing to main branch to trigger GitHub Actions deployment..."
+git push origin main
 
-# Optional: Open the site in browser
-read -p "Do you want to open the site in your browser? (y/n): " -n 1 -r
+print_success "🎉 Deployment triggered!"
+print_success "GitHub Actions will now build and deploy your site."
+print_status "Check deployment status at: https://github.com/h232ch/portfolio/actions"
+print_status "Your site will be available at: https://h232ch.github.io/portfolio/"
+print_status "Note: Deployment usually takes 2-5 minutes."
+
+# Optional: Open the GitHub Actions page
+read -p "Do you want to open the GitHub Actions page? (y/n): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    print_status "Opening site in browser..."
-    open "https://h232ch.github.io/portfolio/"
+    print_status "Opening GitHub Actions page..."
+    open "https://github.com/h232ch/portfolio/actions"
 fi
