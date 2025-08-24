@@ -1,150 +1,108 @@
 ---
-title: "Cybersecurity Project"
+title: Cybersecurity Project
 date: 2025-08-24
-tags: ["obsidian", "hugo", "siem"]
+tags:
+  - obsidian
 draft: false
 ---
 
 ---
 
-### **Why a Portfolio is Helpful**
+# 🔐 End-to-End Cybersecurity Project Plan (High-Level)
 
-1. **Demonstrates Expertise**:
+## **Phase 1 – Application Deployment**
+
+- **Stack & Platform**: Deploy your **React + Node.js** web service on **AWS EKS** using **eksctl**.
     
-    - A portfolio gives tangible proof of your **technical skills** and **cybersecurity experience**, beyond what’s written on your resume.
-    - It shows US companies you’re capable of applying your skills in real-world scenarios.
-2. **Sets You Apart**:
+- **Ingress**: Provision **ALB + Target Group** via eksctl/ALB Ingress Controller.
     
-    - Not many candidates (even natives) have portfolios. A strong portfolio will help you stand out, especially since you're competing in a global market.
-3. **Addresses Language/Communication Gaps**:
+- **Application Logs → Vector → Kafka**:
     
-    - If you're not a native English speaker, your portfolio lets your **work speak for itself**, reducing the emphasis on verbal skills during the initial evaluation.
-4. **Establishes Credibility**:
+    - Run **Vector** to collect app logs from Pods/containers.
+        
+    - **Publish to Kafka** as the central streaming backbone.
+        
+- **Kafka Setup (high-level)**:
     
-    - US employers value self-starters. Building a portfolio shows initiative, dedication, and the ability to **execute independently**.
+    - Choose **Amazon MSK** (managed) _or_ **Strimzi on EKS** (self-managed).
+        
+    - Create core topics (e.g., `app.logs.raw`, `security.logs.raw`).
+        
+    - Keep **JSON records** with consistent fields (timestamp, service, env, cluster, pod, level, message).
+        
+    - Define high-level retention and partitions appropriate for expected volume.
+        
 
 ---
 
-### **What to Include in Your Portfolio**
+## **Phase 2 – Security Operation**
 
-Focus on projects that showcase your expertise in **cybersecurity, DevSecOps**, and **cloud security**. Here are some ideas:
-
-#### 1. **SIEM and Threat Detection Projects**
-
-- Examples:
-    - Custom threat detection rules for **Splunk** or **ELK**.
-    - Incident response use cases (e.g., mitigating a ransomware attack or phishing incident).
-    - Performance optimization for SIEM systems (e.g., reducing query latency or false positives).
-- **Showcase**:
-    - Use screenshots of dashboards, alerts, or log queries.
-    - Provide a short write-up explaining the **problem, solution, and impact**.
-
-#### 2. **AWS Security Projects**
-
-- Examples:
-    - Designing a **secure logging architecture** using AWS services (CloudWatch, S3, GuardDuty).
-    - Implementing **AWS WAF** to protect a web application from common threats.
-    - Automating cloud security audits (e.g., IAM policies, security groups).
-- **Showcase**:
-    - Diagrams of the architecture.
-    - Links to code/scripts (e.g., CloudFormation templates or Terraform files) in a GitHub repository.
-
-#### 3. **DevSecOps Pipelines**
-
-- Examples:
-    - CI/CD pipelines with integrated security scans (e.g., SAST, DAST).
-    - Kubernetes security (e.g., implementing network policies or securing pod configurations).
-    - Automated vulnerability management.
-- **Showcase**:
-    - CI/CD pipeline diagrams.
-    - Links to sample code or configurations.
-
-#### 4. **Incident Response Playbooks**
-
-- Examples:
-    - Detailed playbooks for responding to threats like malware infections, insider threats, or account compromise.
-- **Showcase**:
-    - Provide redacted or anonymized versions of your playbooks.
-    - Highlight how they align with frameworks like **NIST CSF** or **MITRE ATT&CK**.
-
-#### 5. **Open-Source Contributions**
-
-- Examples:
-    - Contributing to cybersecurity tools or creating your own (e.g., threat detection rules, Python scripts for log analysis).
-- **Showcase**:
-    - Link to GitHub repositories.
-    - Include documentation or a README file explaining the project.
-
-#### 6. **Certifications and Awards**
-
-- Highlight relevant certifications like **AWS Security Specialty**, **Splunk Core Certified Consultant**, or **CISSP**.
-- Mention any awards or recognitions.
+- **AWS Security Services**: Enable **CloudTrail, GuardDuty, Security Hub, WAF, VPC Flow Logs**.
+    
+- **Central Log Lake**: Store **all security alerts/logs in S3** (security account).
+    
+- **Ticketing (Initial)**: Basic automation to create **Jira tickets** from critical AWS findings.
+    
 
 ---
 
-### **How to Present Your Portfolio**
+## **Phase 3 – SOC Environment Setup**
 
-#### 1. **Create a Professional Website**
-
-- Use platforms like **GitHub Pages**, **LinkedIn**, or **Notion** to host your portfolio.
-- For a more polished look, use tools like **WordPress**, **Wix**, or **Webflow**.
-
-#### 2. **Organize Your Work**
-
-- Create separate sections for **projects**, **certifications**, and **achievements**.
-- Add **descriptions** for each project, including:
-    - **Problem Statement**: What challenge were you solving?
-    - **Solution**: How did you approach it?
-    - **Impact**: What was the outcome? (Use metrics where possible, e.g., "Reduced incident response time by 30%.")
-    - **Tech Stack**: Mention tools like Splunk, AWS, Python, etc.
-
-#### 3. **Use GitHub**
-
-- Create a **GitHub profile** to showcase technical projects and code.
-- Add well-documented repositories with clear **README files**.
-
-#### 4. **Leverage LinkedIn**
-
-- Publish portfolio highlights on your LinkedIn profile under the "Featured" section.
-- Write **short posts** about your projects to build credibility and attract recruiters.
+- **SIEM**: Stand up **ELK/OpenSearch or Splunk**.
+    
+- **Pipelines**: Ingest from **S3 and Kafka** into the SIEM.
+    
+- **Normalization**: Apply **OCSF/ECS** for consistent fields and entities.
+    
+- **SOC Visuals & Alerts**: Build **dashboards** and **alert rules**; route alerts → **Jira**.
+    
 
 ---
 
-### **How to Tailor It for US Companies**
+## **Phase 4 – Detection Engineering**
 
-1. **Highlight US-Preferred Skills**:
+- **Detections**: Author rules mapped to **MITRE ATT&CK** (e.g., brute force, privilege escalation, data exfil, SQLi).
     
-    - Emphasize experience with tools and frameworks commonly used in the US (AWS, Kubernetes, Splunk, MITRE ATT&CK, etc.).
-2. **Use Clear and Concise English**:
+- **Playbooks**: Define **triage & escalation** runbooks for each detection.
     
-    - Write project descriptions in **simple and professional English**. If needed, get feedback from a native speaker or use tools like Grammarly.
-3. **Focus on Results**:
+- **Adversary Simulation**: Use **OWASP ZAP, Burp Suite, Metasploit** to validate detections end-to-end (alert → Jira workflow).
     
-    - US employers value **impact-driven outcomes**. Include metrics wherever possible (e.g., "Detected 25% more threats by optimizing Splunk rules").
-4. **Align with Industry Standards**:
-    
-    - Reference US frameworks like **NIST CSF**, **CIS Benchmarks**, or **MITRE ATT&CK** in your projects.
 
 ---
 
-### **Additional Tips**
+## **Phase 5 – Vulnerability Management (SOC-Centric)**
 
-1. **Start Blogging**:
+- **Scanning**: Run **Inspector / Nessus / OpenVAS** across workloads/nodes.
     
-    - Write about cybersecurity topics on LinkedIn or Medium to showcase your thought leadership.
-2. **Engage in the Community**:
+- **SIEM Correlation**: Ingest VM findings; correlate **vulnerabilities vs. attack attempts** in logs.
     
-    - Participate in open-source cybersecurity projects or forums like **OWASP**, **Hack the Box**, or **DefCon communities**.
-3. **Build a Network**:
+- **Lifecycle in Jira**: Track **discover → remediate → rescan → close**.
     
-    - Share your portfolio with recruiters and professionals in the US, especially on **LinkedIn**.
 
 ---
 
-### **Conclusion**
+## **Phase 6 – Vulnerability Management (DevSecOps-Centric)**
 
-Your portfolio can be a game-changer, especially as a non-native English speaker. It provides concrete evidence of your skills, highlights your expertise, and makes you stand out in the competitive US job market. Combined with your decade of experience, it will show US companies that you are not only qualified but also proactive and resourceful—qualities they highly value.
+- **CI/CD Security**: Integrate **SAST (CodeQL/SonarQube)**, **DAST (ZAP automation)**, **dependency/container scans (Trivy/Snyk)**.
+    
+- **Exposure Visibility**: Send **DevSecOps assessment logs** to SIEM; **auto-ticket** critical issues pre-deploy.
+    
+- **Trends**: Monitor **vulnerability trends** across builds and releases.
+    
 
-If you'd like, I can help you structure your portfolio or draft content for it!
+---
 
-test!!
+## **Phase 7 – Unified SOC + VM Operations**
+
+- **Single Pane**: Combine **security logs, detections, and vulnerability findings** in the SIEM.
+    
+- **Jira as System of Record**: Incidents + vulnerabilities in one workflow.
+    
+- **Case Studies**: Document scenarios (e.g., CVE discovered → exploit attempt seen in WAF/CloudTrail → correlated alert → Jira incident → patch → verified by rescan).
+    
+- **Portfolio Package**: Final **architecture diagram**, **playbooks & detections**, **screenshots**, **repo + write-up + short demo video**.
+    
+
+---
+
+If you want, I can turn this into a **3–4 month milestone roadmap** (Month 1: Phases 1–2; Month 2: Phase 3; etc.) so it’s execution-ready without adding low-level details.
