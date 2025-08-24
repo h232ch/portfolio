@@ -7,7 +7,7 @@ theme = "PaperMod"
   # Show a short intro card on the homepage (optional)
   [params.homeInfoParams]
     Title = "Welcome 👋"
-    Content = "Cybersecurity • Data Pipelines • OCSF"
+    Content = "Cybersecurity • Detection Engineering • SOC • Vulnerability"
   # This tells Hugo which sections contain posts to display on homepage
   mainSections = ["posts"]
 
