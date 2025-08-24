@@ -1,0 +1,32 @@
+baseURL = "https://h232ch.github.io/"
+title = "Sean's Tech Notes"
+theme = "PaperMod"
+
+[params]
+  defaultTheme = "auto"
+  # Show a short intro card on the homepage (optional)
+  [params.homeInfoParams]
+    Title = "Welcome 👋"
+    Content = "Cybersecurity • Data Pipelines • OCSF"
+  # Optional: tell PaperMod which sections contain posts
+  mainSections = ["posts"]
+
+# Server configuration for local development
+[server]
+  port = 1313
+  bind = "127.0.0.1"
+
+# Content organization
+[markup]
+  [markup.goldmark]
+    [markup.goldmark.renderer]
+      unsafe = true
+
+# Enable search functionality
+[outputs]
+  home = ["HTML", "RSS", "JSON"]
+
+# Configure taxonomies
+[taxonomies]
+  tag = "tags"
+  category = "categories"
