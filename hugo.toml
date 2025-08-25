@@ -19,7 +19,7 @@ theme = "PaperMod"
 # Content organization
 [markup]
   [markup.goldmark]
-    [markup.goldmark.renderer]
+    [markup.goldmark.renderer] 
       unsafe = true
 
 # Enable search functionality
