@@ -104,5 +104,3 @@ draft: false
     
 
 ---
-
-If you want, I can turn this into a **3–4 month milestone roadmap** (Month 1: Phases 1–2; Month 2: Phase 3; etc.) so it’s execution-ready without adding low-level details.
