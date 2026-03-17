@@ -3,11 +3,22 @@ title = "Sean's Tech Notes"
 theme = "PaperMod"
 
 [params]
+  author = "Sean Kim"
   defaultTheme = "auto"
-  # Show a short intro card on the homepage (optional)
+  ShowReadingTime = true
+  ShowPostNavLinks = true
+  ShowBreadCrumbs = true
+  ShowCodeCopyButtons = true
+  ShowShareButtons = false
+
   [params.homeInfoParams]
     Title = "Welcome 👋"
-    Content = "Cybersecurity • Detection Engineering • SOC • Vulnerability "
+    Content = "Cybersecurity • Detection Engineering • SOC • Vulnerability Management • AI/ML Security"
+
+  [[params.socialIcons]]
+    name = "github"
+    url = "https://github.com/h232ch"
+
   # This tells Hugo which sections contain posts to display on homepage
   mainSections = ["posts"]
 
@@ -19,8 +30,11 @@ theme = "PaperMod"
 # Content organization
 [markup]
   [markup.goldmark]
-    [markup.goldmark.renderer] 
+    [markup.goldmark.renderer]
       unsafe = true
+  [markup.highlight]
+    style = "dracula"
+    lineNos = true
 
 # Enable search functionality
 [outputs]
