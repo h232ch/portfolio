@@ -25,6 +25,18 @@ Each phase covers what will be **built in the lab** and what will be **documente
 
 ---
 
+## ✅ Architecture Decisions (Confirmed)
+
+| #   | Decision        | Choice                                                   |
+| --- | --------------- | -------------------------------------------------------- |
+| 1   | Kafka backend   | **Amazon MSK** (managed)                                 |
+| 2   | ELK deployment  | **Elastic Cloud** (free trial → pay if needed)           |
+| 3   | Terraform / IaC | **Manual first** → Terraform after                       |
+| 4   | Identity        | **Okta developer account** (developer.okta.com)          |
+| 5   | Endpoints       | **EC2** (Windows Server 2022 + Ubuntu 22.04 in same VPC) |
+
+---
+
 ## Architecture Overview
 
 ```
@@ -32,18 +44,19 @@ React + Node.js App
        ↓
 Vector (DaemonSet/Sidecar)
        ↓
-Kafka (MSK or Strimzi)  ←── AWS WAF / GuardDuty / CloudTrail (S3 → Lambda)
-       ↓                ←── Windows / Linux Endpoints (Elastic Agent)
-Vector Aggregator / Logstash
+Amazon MSK (Kafka)  ←── AWS WAF / GuardDuty / CloudTrail (S3 → Logstash)
+       ↓             ←── EC2 Endpoints: Win 2022 + Ubuntu (Elastic Agent)
+Logstash Aggregator
        ↓
 Elastic Cloud (ELK SIEM)
        ├── ML Detection Rules
-       ├── XDR
-       ├── Kibana Dashboards ──→ Slack / JIRA Alerts
-       └── AI Assistant (LLM / RAG)
+       ├── XDR (Elastic Security)
+       ├── AI Assistant (LLM / RAG over log data)
+       └── Kibana Dashboards ──→ Slack / JIRA Alerts
 
-AWS Bedrock ──→ Summarize & Contextualize Alerts ──→ ELK
-Atomic Red Team ──→ Endpoints ──→ Validate Detection Rules
+AWS Bedrock (Claude) ──→ Summarize & Contextualize Alerts ──→ ELK
+Okta (Developer Acct) ──→ Logstash ──→ ELK (Identity logs + SSO)
+Atomic Red Team ──→ EC2 Endpoints ──→ Validate Detection Rules
 ```
 
 ---
@@ -54,24 +67,24 @@ Atomic Red Team ──→ Endpoints ──→ Validate Detection Rules
 
 ### What I'll Build
 
-| Task                    | Tool / Service                 |
-| ----------------------- | ------------------------------ |
-| React + Node.js web app | GitHub repo + Docker           |
-| EKS cluster             | `eksctl` (t3.medium nodes)     |
-| ALB Ingress + HTTPS     | AWS Load Balancer Controller   |
-| CI/CD pipeline          | GitHub Actions → ECR → EKS     |
-| AWS WAF                 | WAF v2 Web ACL on ALB          |
-| GuardDuty               | Account-level threat detection |
-| CloudTrail              | Org-level trail → S3           |
-| VPC Flow Logs           | VPC → S3                       |
-| _(Optional)_ Terraform  | IaC for all the above          |
+| Task                    | Tool / Service               | Notes                  |
+| ----------------------- | ---------------------------- | ---------------------- |
+| React + Node.js web app | GitHub repo + Docker         | Simple demo app        |
+| EKS cluster             | `eksctl`                     | t3.medium nodes        |
+| ALB Ingress + HTTPS     | AWS Load Balancer Controller | Exposes app publicly   |
+| CI/CD pipeline          | GitHub Actions → ECR → EKS   | Auto-deploy on push    |
+| AWS WAF                 | WAF v2 Web ACL on ALB        | OWASP rule group       |
+| GuardDuty               | Account-level                | Threat detection       |
+| CloudTrail              | Org-level trail → S3         | Audit logging          |
+| VPC Flow Logs           | VPC → S3                     | Network visibility     |
+| Terraform _(Phase 2)_   | Terraform OSS                | IaC after manual build |
 
 ### Portfolio Deliverables
 
 - Architecture diagram
-- CI/CD pipeline write-up
+- CI/CD pipeline write-up (GitHub Actions → ECR → EKS rollout)
 - Screenshot gallery: EKS console, WAF rules, GuardDuty dashboard
-- Terraform module structure (if used)
+- Terraform module write-up (after manual phase is complete)
 
 ---
 
@@ -82,24 +95,28 @@ Atomic Red Team ──→ Endpoints ──→ Validate Detection Rules
 ### Pipeline Architecture
 
 ```
-Pod / App Logs      → Vector (DaemonSet)   → Kafka: app.logs.raw
-WAF / GD / CT Logs  → S3 → Lambda          → Kafka: security.logs.raw
-Endpoints           → Elastic Agent         → Kafka: endpoint.logs.raw
-                                                     ↓
-                                         Vector Aggregator / Logstash
-                                                     ↓
-                                           Elastic Cloud (ELK)
+EC2 + EKS Pod Logs  → Vector (DaemonSet)    → MSK: app.logs.raw
+WAF / GD / CT Logs  → S3 → Logstash S3 in  → MSK: security.logs.raw
+EC2 Endpoints       → Elastic Agent          → MSK: endpoint.logs.raw
+                                                      ↓
+                                              Logstash Aggregator
+                                                      ↓
+                                               Elastic Cloud (ELK)
 ```
 
-### Kafka Topics
+### Kafka — Amazon MSK ✅
 
-| Topic               | Source                     |
-| ------------------- | -------------------------- |
-| `app.logs.raw`      | EKS pods (via Vector)      |
-| `security.logs.raw` | WAF, GuardDuty, CloudTrail |
-| `endpoint.logs.raw` | Windows / Linux endpoints  |
+| Setting       | Value                                |
+| ------------- | ------------------------------------ |
+| Instance type | `kafka.t3.small` (~$0.21/hr)         |
+| Kafka version | 3.6.x (latest stable)                |
+| Storage       | 100 GiB per broker                   |
+| Auth          | IAM-based (no plaintext credentials) |
+| Encryption    | TLS in-transit + at-rest             |
 
-### Vector Config (DaemonSet)
+**Topics**: `app.logs.raw` · `security.logs.raw` · `endpoint.logs.raw`
+
+### Vector Config (DaemonSet on EKS)
 
 ```yaml
 sources:
@@ -114,21 +131,23 @@ sinks:
   kafka_out:
     type: kafka
     inputs: [parse_json]
-    bootstrap_servers: "msk-endpoint:9092"
+    bootstrap_servers: "${MSK_BOOTSTRAP_ENDPOINT}:9092"
     topic: "app.logs.raw"
+    tls:
+      enabled: true
 ```
 
 ### AWS Native Log Integration
 
-- GuardDuty findings → Kinesis Firehose → S3
-- WAF / CloudTrail → S3 Event Notification → Lambda → Kafka (or Logstash S3 input directly)
+- GuardDuty findings → Kinesis Data Firehose → S3
+- WAF / CloudTrail → **Logstash S3 input plugin** directly into ELK (simpler for initial setup; move to Lambda when throughput scales)
 
 ### Portfolio Deliverables
 
 - End-to-end pipeline diagram
-- Vector config explanation
+- Vector config with MSK TLS explanation
 - Kafka topic design rationale
-- Log sample screenshots (raw → parsed)
+- Log sample screenshots (raw → parsed → indexed)
 
 ---
 
@@ -136,31 +155,31 @@ sinks:
 
 **Goal**: Full SIEM with dashboards, field normalization, and identity integration.
 
-### ELK Deployment
+### Elastic Cloud Deployment ✅
 
-| Option                            | Recommendation                            |
-| --------------------------------- | ----------------------------------------- |
-| Elastic Cloud (14-day free trial) | ✅ Best for portfolio (includes ML + XDR) |
-| Self-managed on EC2               | Good if you want to show ops depth        |
-| AWS OpenSearch                    | Good AWS-native alternative               |
+| Tier            | Cost         | Included                                 |
+| --------------- | ------------ | ---------------------------------------- |
+| Free trial      | $0 / 14 days | Full Enterprise (ML, XDR, LLM connector) |
+| Standard (2 GB) | ~$95/mo      | All features                             |
+| Standard (4 GB) | ~$175/mo     | Recommended if ingesting all sources     |
 
 ### What I'll Build
 
-| Task               | Detail                                      |
-| ------------------ | ------------------------------------------- |
-| Ingest pipeline    | Kafka + S3 → Logstash/Beats → ELK           |
-| Index templates    | ECS-normalized field mappings               |
-| Parsers            | Grok/dissect for WAF, GuardDuty, CloudTrail |
-| Kibana dashboards  | Per-source dashboards                       |
-| Okta integration   | SSO logs via free developer account         |
-| XDR                | Elastic Security XDR module                 |
-| Grafana (optional) | EKS metrics overlay (Prometheus)            |
+| Task                 | Detail                                                        |
+| -------------------- | ------------------------------------------------------------- |
+| Logstash pipeline    | Ingest from MSK (all 3 topics) + S3                           |
+| Index templates      | ECS-normalized field mappings                                 |
+| Ingest pipelines     | Grok/dissect for WAF, GuardDuty, CloudTrail, VPC Flow Logs    |
+| Kibana dashboards    | Per-source + unified SOC dashboard                            |
+| **Okta integration** | Okta System Log → Logstash → ELK (developer.okta.com ✅)      |
+| XDR                  | Elastic Security XDR — endpoint + cloud telemetry in one view |
+| Grafana _(optional)_ | EKS node/pod metrics via Prometheus Operator                  |
 
 ### Portfolio Deliverables
 
 - ELK architecture write-up
 - Kibana dashboard screenshots
-- Field normalization (ECS) guide
+- ECS field normalization guide
 - Okta + SIEM integration walkthrough
 
 ---
@@ -171,28 +190,28 @@ sinks:
 
 ### Detection Coverage
 
-| Category  | Source         | Example Techniques                     |
-| --------- | -------------- | -------------------------------------- |
-| Web App   | WAF logs       | SQLi, XSS, path traversal              |
-| Container | EKS audit logs | Privilege escalation, container escape |
-| Identity  | Okta logs      | Brute force, credential stuffing       |
-| Cloud     | CloudTrail     | IAM anomaly, unusual API calls         |
-| Network   | VPC Flow Logs  | Port scans, data exfiltration          |
+| Category  | Log Source     | Example Techniques                       |
+| --------- | -------------- | ---------------------------------------- |
+| Web App   | WAF logs       | SQLi, XSS, path traversal                |
+| Container | EKS audit logs | Privilege escalation, container escape   |
+| Identity  | **Okta logs**  | Brute force, MFA fatigue, session hijack |
+| Cloud     | CloudTrail     | IAM anomaly, unusual API calls           |
+| Network   | VPC Flow Logs  | Port scans, data exfiltration            |
 
 ### Alert Workflow
 
 ```
-Detection Rule Fires
+Detection Rule Fires in Kibana
        ↓
-Kibana Alert
-       ↓
-Slack Notification + JIRA Ticket (auto-created)
+Kibana Connector
+  ├── Slack webhook (immediate notification)
+  └── JIRA REST API (auto-create ticket)
 ```
 
 ### Portfolio Deliverables
 
 - Detection rule write-ups (3–5 highlighted rules with MITRE mapping)
-- MITRE ATT&CK Navigator coverage map
+- MITRE ATT&CK Navigator coverage map export
 - Alert workflow diagram
 - Example JIRA ticket screenshots
 
@@ -202,28 +221,31 @@ Slack Notification + JIRA Ticket (auto-created)
 
 **Goal**: Validate detection rules against simulated adversarial activity.
 
-### Endpoint Setup
+### Endpoint Setup — EC2 ✅
 
-| OS                        | Role     | Agent                  |
-| ------------------------- | -------- | ---------------------- |
-| Windows Server 2022 (EC2) | Target   | Elastic Agent + Sysmon |
-| Ubuntu 22.04 (EC2)        | Target   | Elastic Agent          |
-| Kali Linux                | Attacker | Atomic Red Team        |
+| OS                  | EC2 Type  | Role     | Agent                  |
+| ------------------- | --------- | -------- | ---------------------- |
+| Windows Server 2022 | t3.medium | Target   | Elastic Agent + Sysmon |
+| Ubuntu 22.04        | t3.small  | Target   | Elastic Agent          |
+| Kali Linux          | t3.small  | Attacker | Atomic Red Team        |
 
-### Test Workflow
+> All endpoints are in the **same VPC as EKS** — VPC Flow Logs capture all lateral movement for free.  
+> Estimated cost: **~$50–80/mo** when all running. Shut down between sessions.
+
+### Atomic Red Team Workflow
 
 ```
-1. Pick ATT&CK technique (e.g. T1059.001 – PowerShell)
-2. Run Atomic Red Team test on Windows endpoint
-3. Verify detection fires in Kibana
-4. If no alert → write custom detection rule
-5. Document result in portfolio
+1. Pick ATT&CK technique  →  e.g. T1059.001 (PowerShell Execution)
+2. Run Atomic test on Windows endpoint
+3. Check Kibana: did the detection fire?
+4. No alert?  →  write custom KQL/EQL rule
+5. Document: technique + rule + screenshot in portfolio
 ```
 
 ### Portfolio Deliverables
 
 - Elastic Agent install guide (Windows + Linux)
-- Atomic Red Team results table (technique → detected? → rule)
+- Atomic Red Team results table (technique → detected? → rule name)
 - Custom rule write-ups for coverage gaps
 
 ---
@@ -232,31 +254,39 @@ Slack Notification + JIRA Ticket (auto-created)
 
 **Goal**: Show AI/ML capability across both Elastic and AWS Bedrock.
 
-### 6A — Elastic ML & AI
+### 6A — Elastic ML & AI Assistant
 
-| Feature              | Detail                                                                            |
-| -------------------- | --------------------------------------------------------------------------------- |
-| Built-in ML rules    | [Elastic ML detection rules](https://elastic.github.io/detection-rules-explorer/) |
-| Anomaly detection    | Unusual process, network, login behaviors                                         |
-| Elastic AI Assistant | RAG over log data in real time                                                    |
-| LLM connector        | OpenAI or Bedrock as the backend                                                  |
+| Feature                  | Detail                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------- |
+| Built-in ML rules        | [Elastic ML detection rules](https://elastic.github.io/detection-rules-explorer/) |
+| Anomaly detection        | Unusual process, network, login behaviors                                         |
+| **Elastic AI Assistant** | RAG over log data in real time (included in trial)                                |
+| LLM connector            | Connect AI Assistant to **AWS Bedrock (Claude)**                                  |
 
-### 6B — AWS Bedrock
+### 6B — AWS Bedrock Integration
 
 ```
-ELK Alert → Lambda → Bedrock (Claude 3 Sonnet)
-                     → Summarize + Contextualize finding
-                     → Response stored back in ELK index
-Bedrock Guardrails: prompt injection protection + PII filtering
-Guardrail logs → ingested into ELK
+ELK Alert → Lambda
+                ↓
+         Amazon Bedrock (Claude 3 Sonnet)
+                ↓
+         Summarize + contextualize finding
+         + suggest remediation steps
+                ↓
+         Response stored back in ELK index
+
+Bedrock Guardrails:
+  - Prompt injection protection
+  - PII filtering
+  - Guardrail logs → ingested into ELK
 ```
 
 ### Portfolio Deliverables
 
-- ML rule coverage summary
+- Elastic ML rule coverage summary
 - Bedrock architecture diagram
 - Demo: natural-language query against security data
-- Guardrail bypass attempt + detection write-up
+- Guardrail bypass attempt + detection write-up (AI security angle)
 
 ---
 
@@ -270,7 +300,7 @@ Guardrail logs → ingested into ELK
 GitHub PR → GitHub Actions
   ├── SAST: CodeQL / SonarQube
   ├── Dependency scan: Snyk / Dependabot
-  ├── Container scan: Trivy
+  ├── Container scan: Trivy (ECR images)
   └── DAST (post-deploy): OWASP ZAP
          ↓
   Critical findings → JIRA (auto-ticket)
@@ -284,17 +314,37 @@ GitHub PR → GitHub Actions
 | ------------------------ | ------------------------- |
 | AWS Inspector v2         | EC2 + Lambda + ECR images |
 | Nessus Essentials (free) | EC2 endpoints             |
-| OpenVAS (optional)       | Self-hosted scanner       |
+| OpenVAS _(optional)_     | Self-hosted scanner       |
 
 ### Capstone Use Case
 
-> CVE discovered by Inspector → exploit attempt seen in WAF logs → correlated alert in ELK → JIRA incident created → patch deployed via CI/CD → verified by rescan in Inspector
+> **CVE discovered** by Inspector → **exploit attempt** seen in WAF logs → **correlated alert** in ELK → **JIRA incident** auto-created → **patch deployed** via CI/CD → **verified** by Inspector rescan
 
 ### Portfolio Deliverables
 
 - DevSecOps pipeline diagram
 - Scan results with triage decisions
-- Capstone case study write-up
+- Capstone case study write-up (CVE → alert → remediation)
+
+---
+
+## Terraform Plan (After Manual Build)
+
+Once each component is working manually, encode it as Terraform:
+
+```
+terraform/
+  modules/
+    eks/           # EKS cluster + node groups + IRSA
+    msk/           # Amazon MSK cluster + topics
+    security/      # WAF, GuardDuty, CloudTrail, VPC Flow Logs
+    ec2-endpoints/ # Windows Server 2022 + Ubuntu + Kali
+    iam/           # Roles, policies, instance profiles
+  envs/
+    lab/           # terraform.tfvars for lab
+```
+
+The portfolio story: **build manually to understand it → encode as IaC to prove you can automate it.**
 
 ---
 
@@ -305,7 +355,7 @@ content/posts/
   ├── phase1-app-infrastructure.md
   ├── phase1-eks-cicd.md
   ├── phase2-log-pipeline.md
-  ├── phase2-kafka-vector.md
+  ├── phase2-msk-vector.md
   ├── phase3-elk-siem.md
   ├── phase3-okta-integration.md
   ├── phase4-detection-rules.md
@@ -319,20 +369,21 @@ content/posts/
 
 ---
 
-## Build Sequence
+## Build Sequence & Timeline
 
-| Phase                     | Estimated Duration | Dependencies |
-| ------------------------- | ------------------ | ------------ |
-| Phase 1 – App & Infra     | 3 weeks            | None         |
-| Phase 2 – Log Pipeline    | 3 weeks            | Phase 1      |
-| Phase 3 – ELK SIEM        | 2 weeks            | Phase 2      |
-| Phase 4 – Detection Rules | 2 weeks            | Phase 3      |
-| Phase 5 – EDR + Red Team  | 2 weeks            | Phase 4      |
-| Phase 6 – AI/ML           | 2 weeks            | Phase 3      |
-| Phase 7 – DevSecOps + VM  | 2 weeks            | Phase 4      |
+| Phase                         | Estimated Duration | Depends On |
+| ----------------------------- | ------------------ | ---------- |
+| 1 – App & Security Infra      | 3 weeks            | —          |
+| 2 – MSK + Log Pipeline        | 3 weeks            | Phase 1    |
+| 3 – Elastic Cloud SIEM        | 2 weeks            | Phase 2    |
+| 4 – Detection Rules           | 2 weeks            | Phase 3    |
+| 5 – EDR + Atomic Red Team     | 2 weeks            | Phase 4    |
+| 6 – AI/ML (Elastic + Bedrock) | 2 weeks            | Phase 3    |
+| 7 – DevSecOps + VM            | 2 weeks            | Phase 4    |
+| Terraform IaC pass            | 2 weeks            | All phases |
 
-> ⚠️ **Cost Watch**: EKS + MSK + Elastic Cloud + EC2 endpoints ≈ **$150–400/mo**.  
-> Tear down non-essential resources between work sessions.
+> ⚠️ **Cost estimate while building**: EKS (~$80) + MSK (~$150) + Elastic Cloud (~$95–175) + EC2 endpoints (~$50–80) ≈ **$375–505/mo**.  
+> Shut down MSK, EC2 endpoints, and EKS node groups when not actively working.
 
 ---
 
@@ -341,9 +392,9 @@ content/posts/
 | Phase | How to Verify                                                           |
 | ----- | ----------------------------------------------------------------------- |
 | 1     | App accessible via ALB; WAF blocks OWASP Top 10 test payloads           |
-| 2     | Messages visible in Kafka; logs appear in ELK index                     |
-| 3     | All sources visible in Kibana; Okta login events indexed                |
-| 4     | Simulated brute force triggers detection + Slack notification           |
+| 2     | Messages in MSK topic; logs appear in ELK index                         |
+| 3     | All sources in Kibana; **Okta login events** indexed                    |
+| 4     | Simulated brute force triggers detection + Slack + JIRA                 |
 | 5     | Atomic Red Team test fires alert in Kibana                              |
 | 6     | ML anomaly detected; Bedrock returns contextualized response            |
 | 7     | CodeQL finding creates JIRA ticket; Inspector finding correlated in ELK |
